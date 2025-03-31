@@ -16,7 +16,7 @@ const server = http.createServer(app);
 const corsOrigin = process.env.CORS_ORIGIN || 'https://guileless-crisp-6c4e0f.netlify.app';
 
 app.use(cors({
-    origin: [corsOrigin, 'http://localhost:3000'],
+    origin: '*',  // Allow all origins temporarily for testing
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true
 }));
@@ -25,9 +25,10 @@ app.use(cors({
 const io = new Server(server, {
     path: '/socket.io',
     cors: {
-        origin: [corsOrigin, 'http://localhost:3000'],
+        origin: '*',  // Allow all origins temporarily
         methods: ["GET", "POST"],
-        credentials: true
+        credentials: true,
+        transports: ['websocket', 'polling']
     }
 });
 
@@ -506,7 +507,7 @@ app.post('/api/p2p/initiate', authenticateToken, async (req, res) => {
 // Make sure this is the last middleware
 app.use(express.static('./'));
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+const PORT = process.env.PORT || 10000;  // Change default port
+server.listen(PORT, '0.0.0.0', () => {    // Listen on all network interfaces
     console.log(`Server running on port ${PORT}`);
 });

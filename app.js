@@ -30,6 +30,15 @@ const EMAIL_CONFIG = {
     emailSubject: 'New File Shared - P2P System'
 };
 
+const { connectDB } = require('./config/db');
+
+// Initialize MongoDB connection
+try {
+    connectDB();
+} catch (error) {
+    console.error('Failed to connect to MongoDB:', error);
+}
+
 class P2PFileSystem {
     constructor() {
         this.peers = new Set();
@@ -39,7 +48,11 @@ class P2PFileSystem {
         this.setupDragAndDrop();
         this.setupSearch();
         this.setupFileSystem();
-        this.socket = io();
+        this.socket = io('https://p2p-file-system.onrender.com', {
+            path: '/socket.io',
+            transports: ['websocket', 'polling'],
+            credentials: true
+        });
         this.setupSocketListeners();
         this.setupAuth(); // Make sure this gets called
     }
@@ -205,54 +218,47 @@ class P2PFileSystem {
     }
 
     async processFileUpload(file) {
-        let currentDashboard, progressBar;
-        try {
-            // Validate user and get dashboard
-            if (!this.currentUser?.type) {
-                throw new Error('Please log in first');
-            }
+        let retryCount = 0;
+        const maxRetries = 3;
+        let lastError = null;
 
-            currentDashboard = document.querySelector(`#${this.currentUser.type}Dashboard`);
-            if (!currentDashboard) {
-                throw new Error('Dashboard not found');
-            }
+        const tryUpload = async () => {
+            try {
+                if (!this.currentUser?.type) {
+                    throw new Error('Please log in first');
+                }
 
-            // Get selected recipients
-            const recipients = Array.from(currentDashboard.querySelectorAll('.recipient-options input:checked'))
-                .map(input => input.value);
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('from', this.currentUser.type);
+                formData.append('timestamp', new Date().toISOString());
+                formData.append('uploadId', Math.random().toString(36).substring(7));
 
-            console.log('Upload attempt:', {
-                file: file.name,
-                from: this.currentUser.type,
-                recipients: recipients
-            });
+                // Get selected recipients
+                const recipients = Array.from(document.querySelectorAll('.recipient-options input:checked'))
+                    .map(input => input.value);
+                formData.append('recipients', JSON.stringify(recipients));
 
-            // Create and show progress bar
-            const progress = currentDashboard.querySelector('.progress');
-            if (progress) {
-                progress.style.display = 'block';
-                progress.classList.remove('d-none');
-                progressBar = progress.querySelector('.progress-bar');
-                if (progressBar) progressBar.style.width = '0%';
-            }
+                const response = await fetch('https://p2p-file-system.onrender.com/api/upload', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'include',
+                    headers: {
+                        // Remove Content-Type header to let browser set it with boundary
+                        'Accept': 'application/json'
+                    }
+                });
 
-            // Upload the file
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('from', this.currentUser.type);
-            formData.append('recipients', JSON.stringify(recipients));
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Upload failed with status: ${response.status}`);
+                }
 
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData
-            });
+                const data = await response.json();
+                if (!data.success) {
+                    throw new Error(data.message || 'Upload failed');
+                }
 
-            if (!response.ok) {
-                throw new Error('Upload failed');
-            }
-
-            const data = await response.json();
-            if (data.success) {
                 // Add file to local list
                 const newFile = {
                     _id: data.file.id,
@@ -269,33 +275,28 @@ class P2PFileSystem {
                 };
 
                 this.uploadedFiles.push(newFile);
-
-                // Share with recipients if any selected
-                if (recipients.length > 0) {
-                    await this.sharePrivateFile(data.file.id, recipients);
-                }
-
                 this.showToast(`File ${file.name} uploaded successfully!`, 'success');
-                if (recipients.length > 0) {
-                    this.showToast(`File shared with: ${recipients.join(', ')}`, 'success');
-                }
-
                 await this.updateFileList();
-                
-                // Clear checkboxes
-                currentDashboard.querySelectorAll('.recipient-options input[type="checkbox"]')
-                    .forEach(cb => cb.checked = false);
-            }
 
-        } catch (error) {
-            console.error('Upload error:', error);
-            this.showToast(`Upload failed: ${error.message}`, 'error');
-        } finally {
-            if (progress) {
-                progress.style.display = 'none';
-                progress.classList.add('d-none');
+                return true;
+            } catch (error) {
+                lastError = error;
+                console.error('Upload attempt failed:', error);
+                return false;
+            }
+        };
+
+        // Retry logic with exponential backoff
+        while (retryCount < maxRetries) {
+            const success = await tryUpload();
+            if (success) return;
+            retryCount++;
+            if (retryCount < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
             }
         }
+
+        this.showToast(`Upload failed after ${maxRetries} attempts: ${lastError?.message}`, 'error');
     }
 
     async shareFileWithUser(fileId, recipient) {
@@ -360,29 +361,6 @@ class P2PFileSystem {
     }
 
     updateFileList(searchQuery = '') {
-        const userType = this.currentUser?.type || 'guest';
-        console.log('Fetching files for user type:', userType);
-        
-        fetch(`/api/files?type=${userType}`)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Failed to fetch files');
-                }
-                return response.json();
-            })
-            .then(files => {
-                console.log('Fetched files:', files);
-                this.uploadedFiles = files;
-                this.updateFileDisplay();
-            })
-            .catch(error => {
-                console.error('Error fetching files:', error);
-                this.showToast('Failed to fetch files', 'error');
-            });
-    }
-
-    updateFileList() {
-        // Don't fetch files if no user is logged in
         if (!this.currentUser?.type) {
             console.log('No active user session');
             return Promise.resolve();
@@ -390,22 +368,46 @@ class P2PFileSystem {
 
         const userType = this.currentUser.type;
         console.log('Fetching files for user type:', userType);
-        
-        return fetch(`/api/files?type=${userType}`)
-            .then(response => {
-                if (!response.ok) throw new Error('Failed to fetch files');
-                return response.json();
-            })
-            .then(files => {
-                console.log('Fetched files:', files);
-                this.uploadedFiles = files;
-                this.updateFileDisplay();
-            })
+
+        const retryFetch = async (attempts = 3) => {
+            for (let i = 0; i < attempts; i++) {
+                try {
+                    const response = await fetch(`https://p2p-file-system.onrender.com/api/files?type=${userType}`, {
+                        credentials: 'include',
+                        headers: {
+                            'Cache-Control': 'no-cache',
+                            'Pragma': 'no-cache'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Server returned ${response.status}`);
+                    }
+
+                    const files = await response.json();
+                    console.log('Fetched files:', files);
+                    this.uploadedFiles = Array.isArray(files) ? files : [];
+                    this.updateFileDisplay();
+                    return;
+                } catch (error) {
+                    console.error(`Attempt ${i + 1} failed:`, error);
+                    if (i === attempts - 1) {
+                        throw error;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+                }
+            }
+        };
+
+        return retryFetch()
             .catch(error => {
                 console.error('Error fetching files:', error);
                 if (this.currentUser) {
-                    this.showToast('Failed to fetch files: ' + error.message, 'error');
+                    this.showToast(`Failed to fetch files: ${error.message}. Please try refreshing the page.`, 'error');
                 }
+                // Set empty array on error to prevent undefined errors
+                this.uploadedFiles = [];
+                this.updateFileDisplay();
             });
     }
 
@@ -499,7 +501,7 @@ class P2PFileSystem {
         
         const file = this.uploadedFiles.find(f => f._id === fileId || f.id === fileId);
         if (file) {
-            window.open(`/api/download/${fileId}`, '_blank');
+            window.open(`https://p2p-file-system.onrender.com/api/download/${fileId}`, '_blank');
         }
     }
 
@@ -802,7 +804,7 @@ class P2PFileSystem {
                 formData.append('recipients', JSON.stringify(recipients));
 
                 // Upload file
-                const response = await fetch('/api/upload', {
+                const response = await fetch('https://p2p-file-system.onrender.com/api/upload', {
                     method: 'POST',
                     body: formData
                 });
@@ -883,7 +885,7 @@ class P2PFileSystem {
     }
 
     setupSocketListeners() {
-        this.socket = io('wss://p2p-file-system.onrender.com', {
+        this.socket = io('https://p2p-file-system.onrender.com', {
             path: '/socket.io',
             transports: ['websocket', 'polling'],
             credentials: true
