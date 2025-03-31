@@ -54,10 +54,8 @@ class P2PFileSystem {
             credentials: true
         });
         this.setupSocketListeners();
-        this.setupAuth();
-        
-        // Bind login method in constructor
         this.login = this.login.bind(this);
+        this.setupAuth();
     }
 
     init() {
@@ -617,35 +615,29 @@ class P2PFileSystem {
     }
 
     setupAuth() {
-        // Ensure login function is available after initialization
-        if (!window.login) {
-            window.login = this.login.bind(this);
-        }
-    }
-
-    login() {
-        try {
+        // Keep login method simple and bound to class
+        this.login = () => {
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             const userType = document.getElementById('userType').value;
-
-            console.log('Login attempt:', { username, userType });
 
             if (!username || !password) {
                 this.showToast('Please enter username and password', 'error');
                 return;
             }
 
-            if (this.authenticateUser(username, password, userType)) {
-                this.showToast('Login successful!', 'success');
-                this.showDashboard(userType);
-            } else {
-                this.showToast('Invalid credentials!', 'error');
+            try {
+                if (this.authenticateUser(username, password, userType)) {
+                    this.showToast('Login successful!', 'success');
+                    this.showDashboard(userType);
+                } else {
+                    this.showToast('Invalid credentials!', 'error');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                this.showToast('Login failed: ' + error.message, 'error');
             }
-        } catch (error) {
-            console.error('Login error:', error);
-            this.showToast('Login failed: ' + error.message, 'error');
-        }
+        };
     }
 
     authenticateUser(username, password, type) {
@@ -1094,7 +1086,6 @@ window.addEventListener('DOMContentLoaded', () => {
     // Create system instance
     const system = new P2PFileSystem();
     window.fileSystem = system;
-    window.login = () => system.login();
 });
 
 function uploadFile() {

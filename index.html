@@ -39,7 +39,7 @@
                 <div class="form-group mb-3">
                     <input type="password" id="password" class="form-control" placeholder="Password" required>
                 </div>
-                <button type="button" class="btn btn-primary" onclick="login()">Login</button>
+                <button type="button" class="btn btn-primary" id="loginBtn">Login</button>
             </div>
         </div>
     </div>
@@ -582,8 +582,11 @@
             window.BACKEND_URL = 'https://p2p-file-system.onrender.com';
             const system = new P2PFileSystem();
             window.fileSystem = system;
-            // Explicitly bind login function to window
-            window.login = () => system.login();
+            
+            // Direct event listener instead of onclick
+            document.getElementById('loginBtn').addEventListener('click', () => {
+                system.login();
+            });
         });
     </script>
 </body>

@@ -11,12 +11,15 @@ const app = express();
 const server = createServer(app);
 const port = process.env.PORT || 3000;
 
-// Connect to MongoDB
-connectDB().then(() => {
-    console.log('MongoDB connected successfully');
-}).catch(err => {
-    console.error('MongoDB connection error:', err);
-});
+// Connect to MongoDB with retry logic
+(async () => {
+    try {
+        await connectDB();
+    } catch (err) {
+        console.error('Failed to connect to MongoDB:', err);
+        process.exit(1);
+    }
+})();
 
 const corsOrigin = process.env.CORS_ORIGIN || 'https://guileless-crisp-6c4e0f.netlify.app';
 
