@@ -2,19 +2,22 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const cors = require('cors');
+const { Server } = require('socket.io');
+const { createServer } = require('http');
 const { connectDB } = require('./config/db');
 const File = require('./config/models/file');
 
 const app = express();
+const server = createServer(app);
 const port = process.env.PORT || 3000;
 
-<<<<<<< HEAD
 // Connect to MongoDB
 connectDB().then(() => {
     console.log('MongoDB connected successfully');
 }).catch(err => {
     console.error('MongoDB connection error:', err);
-=======
+});
+
 const corsOrigin = process.env.CORS_ORIGIN || 'https://guileless-crisp-6c4e0f.netlify.app';
 
 app.use(cors({
@@ -32,11 +35,9 @@ const io = new Server(server, {
         credentials: true,
         transports: ['websocket', 'polling']
     }
->>>>>>> origin/main
 });
 
 // Middleware
-app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -126,16 +127,9 @@ app.get('/api/download/:fileId', async (req, res) => {
     }
 });
 
-<<<<<<< HEAD
-// Start server
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
-=======
 // Make sure this is the last middleware
 app.use(express.static('./'));
 
-const PORT = process.env.PORT || 10000;  // Change default port
-server.listen(PORT, '0.0.0.0', () => {    // Listen on all network interfaces
-    console.log(`Server running on port ${PORT}`);
->>>>>>> origin/main
+server.listen(port, '0.0.0.0', () => {    // Listen on all network interfaces
+    console.log(`Server running on port ${port}`);
 });
