@@ -39,7 +39,7 @@
                 <div class="form-group mb-3">
                     <input type="password" id="password" class="form-control" placeholder="Password" required>
                 </div>
-                <button type="button" class="btn btn-primary" onclick="window.login()">Login</button>
+                <button type="button" class="btn btn-primary" onclick="login()">Login</button>
             </div>
         </div>
     </div>
@@ -580,8 +580,9 @@
         // Initialize after DOM loads
         document.addEventListener('DOMContentLoaded', () => {
             window.BACKEND_URL = 'https://p2p-file-system.onrender.com';
-            window.fileSystem = new P2PFileSystem();
-            window.login = () => window.fileSystem.login();
+            const system = new P2PFileSystem();
+            window.fileSystem = system;
+            window.login = system.login.bind(system);
         });
     </script>
 </body>

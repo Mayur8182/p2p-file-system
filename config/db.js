@@ -8,13 +8,12 @@ const connectDB = async () => {
         const conn = await mongoose.connect(MONGODB_URI, {
             useNewUrlParser: true,
             useUnifiedTopology: true,
-            ssl: true,
-            tls: true,
-            tlsAllowInvalidCertificates: true,
-            tlsInsecure: true,
             retryWrites: true,
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000,
+            // Remove conflicting TLS options and use only necessary ones
+            tls: true,
+            tlsAllowInvalidCertificates: true
         });
 
         console.log(`MongoDB Connected: ${conn.connection.host}`);

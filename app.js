@@ -614,29 +614,31 @@ class P2PFileSystem {
     }
 
     setupAuth() {
-        // Bind login method to this instance
+        // Create bound login method
         this.login = () => {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const userType = document.getElementById('userType').value;
+            try {
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                const userType = document.getElementById('userType').value;
 
-            console.log('Login attempt:', { username, userType });
+                console.log('Login attempt:', { username, userType });
 
-            if (!username || !password) {
-                this.showToast('Please enter username and password', 'error');
-                return;
-            }
+                if (!username || !password) {
+                    this.showToast('Please enter username and password', 'error');
+                    return;
+                }
 
-            if (this.authenticateUser(username, password, userType)) {
-                this.showToast('Login successful!', 'success');
-                this.showDashboard(userType);
-            } else {
-                this.showToast('Invalid credentials!', 'error');
+                if (this.authenticateUser(username, password, userType)) {
+                    this.showToast('Login successful!', 'success');
+                    this.showDashboard(userType);
+                } else {
+                    this.showToast('Invalid credentials!', 'error');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                this.showToast('Login failed: ' + error.message, 'error');
             }
         };
-
-        // Ensure fileSystem instance is available globally
-        window.fileSystem = this;
     }
 
     authenticateUser(username, password, type) {
