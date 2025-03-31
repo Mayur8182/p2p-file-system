@@ -137,11 +137,15 @@ class P2PFileSystem {
 
     async uploadFile(file) {
         try {
-            const progress = document.getElementById('uploadProgress');
-            const progressBar = progress.querySelector('.progress-bar');
+            // Get progress element from current dashboard
+            const currentDashboard = document.querySelector(`#${this.currentUser.type}Dashboard`);
+            const progress = currentDashboard.querySelector('#uploadProgress');
+            const progressBar = progress?.querySelector('.progress-bar');
             
-            progress.style.display = 'block';
-            progressBar.style.width = '0%';
+            if (progress && progressBar) {
+                progress.classList.remove('d-none');
+                progressBar.style.width = '0%';
+            }
 
             // Show selected recipients if admin
             let recipients = [];
@@ -192,7 +196,9 @@ class P2PFileSystem {
         } catch (error) {
             this.showToast(`Upload failed: ${error.message}`, 'error');
         } finally {
-            progress.style.display = 'none';
+            if (progress) {
+                progress.classList.add('d-none');
+            }
         }
     }
 
@@ -695,14 +701,40 @@ class P2PFileSystem {
         // Refresh file list
         this.updateFileList();
         
-        // Update stats
-        if (this.currentUser.type === 'admin') {
-            // Simulate stats update
-            document.getElementById('adminFileCount').textContent = this.uploadedFiles.length;
-            document.getElementById('adminUserCount').textContent = 
-                Math.floor(Math.random() * 10) + 5; // Simulated active users
-            document.getElementById('adminStorageCount').textContent = 
-                `${(Math.random() * 10).toFixed(1)} GB`; // Simulated storage
+        // Update stats based on dashboard type
+        const dashboardType = this.currentUser.type;
+        const fileCount = this.uploadedFiles.length;
+        
+        document.getElementById(`${dashboardType}FileCount`).textContent = fileCount;
+        
+        switch(dashboardType) {
+            case 'admin':
+                document.getElementById('adminUserCount').textContent = 
+                    Math.floor(Math.random() * 10) + 5;
+                document.getElementById('adminStorageCount').textContent = 
+                    `${(Math.random() * 10).toFixed(1)} GB`;
+                break;
+                
+            case 'nasa':
+                document.getElementById('nasaPeerCount').textContent = 
+                    Math.floor(Math.random() * 5) + 2;
+                document.getElementById('nasaDownloadCount').textContent = 
+                    Math.floor(Math.random() * 100);
+                break;
+                
+            case 'drdo':
+                document.getElementById('drdoPeerCount').textContent = 
+                    Math.floor(Math.random() * 5) + 2;
+                document.getElementById('drdoDownloadCount').textContent = 
+                    Math.floor(Math.random() * 100);
+                break;
+                
+            case 'university':
+                document.getElementById('universityPeerCount').textContent = 
+                    Math.floor(Math.random() * 5) + 2;
+                document.getElementById('universityDownloadCount').textContent = 
+                    Math.floor(Math.random() * 100);
+                break;
         }
         
         this.showToast('Dashboard refreshed!', 'success');
