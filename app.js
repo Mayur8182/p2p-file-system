@@ -142,32 +142,22 @@ class P2PFileSystem {
             formData.append('from', this.currentUser?.username || 'Anonymous');
             formData.append('recipients', JSON.stringify(recipients));
 
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/upload', true);
-
-            xhr.upload.onprogress = (e) => {
-                if (e.lengthComputable) {
-                    const percent = (e.loaded / e.total) * 100;
-                    progressBar.style.width = percent + '%';
-                }
-            };
-
-            const response = await new Promise((resolve, reject) => {
-                xhr.onload = () => {
-                    if (xhr.status === 200) {
-                        resolve(JSON.parse(xhr.responseText));
-                    } else {
-                        reject(new Error(xhr.responseText));
-                    }
-                };
-                xhr.onerror = () => reject(new Error('Network error'));
-                xhr.send(formData);
+            const response = await fetch('https://p2p-file-system.onrender.com/api/upload', {
+                method: 'POST',
+                body: formData,
+                credentials: 'include'
             });
 
-            if (response.success) {
+            if (!response.ok) {
+                throw new Error('Upload failed');
+            }
+
+            const responseData = await response.json();
+
+            if (responseData.success) {
                 // Add to local list
                 this.uploadedFiles.push({
-                    id: response.file.id,
+                    id: responseData.file.id,
                     name: file.name,
                     size: file.size,
                     timestamp: new Date(),
@@ -180,7 +170,7 @@ class P2PFileSystem {
                 // Notify recipient if sharing
                 const shareEmail = document.getElementById('shareEmail')?.value;
                 if (shareEmail) {
-                    await this.shareFileWithUser(response.file.id, shareEmail);
+                    await this.shareFileWithUser(responseData.file.id, shareEmail);
                 }
             }
 
@@ -893,13 +883,11 @@ class P2PFileSystem {
     }
 
     setupSocketListeners() {
-        if (!this.socket) {
-            this.socket = io({
-                transports: ['websocket', 'polling'],
-                reconnection: true,
-                reconnectionAttempts: 5
-            });
-        }
+        this.socket = io('wss://p2p-file-system.onrender.com', {
+            path: '/socket.io',
+            transports: ['websocket', 'polling'],
+            credentials: true
+        });
 
         this.socket.on('connect', () => {
             console.log('Connected to server');

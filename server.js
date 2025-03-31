@@ -58,9 +58,15 @@ const client = new MongoClient(uri, {
         version: ServerApiVersion.v1,
         strict: true,
         deprecationErrors: true,
-    }
+    },
+    ssl: true,
+    tls: true,
+    tlsAllowInvalidCertificates: true,
+    useNewUrlParser: true,
+    useUnifiedTopology: true
 });
 
+// Update error handling in connectDB function
 async function connectDB() {
     try {
         await client.connect();
@@ -70,12 +76,18 @@ async function connectDB() {
         const db = client.db("p2p_system");
         global.FileCollection = db.collection("files");
         
-        await client.db("admin").command({ ping: 1 });
-        console.log("MongoDB connection verified!");
+        // Test connection with error handling
+        try {
+            await client.db("admin").command({ ping: 1 });
+            console.log("MongoDB connection verified!");
+        } catch (pingError) {
+            console.error("Ping failed:", pingError);
+        }
         
     } catch (error) {
         console.error("MongoDB connection error:", error);
-        process.exit(1);
+        // Don't exit process, allow retry
+        setTimeout(connectDB, 5000); // Retry after 5 seconds
     }
 }
 
