@@ -13,6 +13,7 @@
     <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="config.js"></script>
+    <script src="app.js"></script>
 </head>
 <body class="bg-light">
     <div id="loginSection" class="container animate__animated animate__fadeIn">
@@ -575,18 +576,29 @@
     <div id="accessControlModal" class="modal">
         <!-- Modal content will be dynamically added -->
     </div>
-    <script src="app.js"></script>
     <script>
         // Initialize after DOM loads
         document.addEventListener('DOMContentLoaded', () => {
-            window.BACKEND_URL = 'https://p2p-file-system.onrender.com';
-            const system = new P2PFileSystem();
-            window.fileSystem = system;
+            window.fileSystem = new P2PFileSystem();
             
-            // Direct event listener instead of onclick
-            document.getElementById('loginBtn').addEventListener('click', () => {
-                system.login();
+            // Add keypress handler for enter key
+            document.getElementById('password').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    window.fileSystem.login();
+                }
             });
+
+            // Add click handler for login button
+            document.getElementById('loginBtn').addEventListener('click', () => {
+                window.fileSystem.login();
+            });
+
+            // Bind login to window as fallback
+            window.login = () => {
+                if (window.fileSystem) {
+                    window.fileSystem.login();
+                }
+            };
         });
     </script>
 </body>

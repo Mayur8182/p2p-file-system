@@ -30,35 +30,28 @@ const EMAIL_CONFIG = {
     emailSubject: 'New File Shared - P2P System'
 };
 
-const { connectDB } = require('./config/db');
-
-// Initialize MongoDB connection
-try {
-    connectDB();
-} catch (error) {
-    console.error('Failed to connect to MongoDB:', error);
-}
-
 class P2PFileSystem {
     constructor() {
         this.peers = new Set();
         this.files = new Map();
         this.uploadedFiles = [];
+        this.socket = null;
         this.init();
         this.setupDragAndDrop();
         this.setupSearch();
         this.setupFileSystem();
-        this.socket = io('https://p2p-file-system.onrender.com', {
-            path: '/socket.io',
-            transports: ['websocket', 'polling'],
-            credentials: true
-        });
-        this.setupSocketListeners();
-        this.login = this.login.bind(this);
         this.setupAuth();
     }
 
     init() {
+        // Initialize socket connection
+        this.socket = io(config.API_URL, {
+            path: config.SOCKET_PATH,
+            transports: ['websocket', 'polling'],
+            credentials: true
+        });
+
+        this.setupSocketListeners();
         this.setupEventListeners();
         this.connectToPeers();
     }
@@ -615,48 +608,65 @@ class P2PFileSystem {
     }
 
     setupAuth() {
-        // Keep login method simple and bound to class
         this.login = () => {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
             const userType = document.getElementById('userType').value;
 
+            console.log('Login attempt:', { username, userType });  // Debug log
+
+            // Input validation
             if (!username || !password) {
                 this.showToast('Please enter username and password', 'error');
                 return;
             }
 
-            try {
-                if (this.authenticateUser(username, password, userType)) {
-                    this.showToast('Login successful!', 'success');
-                    this.showDashboard(userType);
+            // Map userType to the correct user object key
+            const userKey = userType === 'admin' ? 'admin' : `${userType}_user`;
+            const userData = USERS[userKey];
+
+            if (!userData) {
+                this.showToast('Invalid user type', 'error');
+                return;
+            }
+
+            // Validate credentials
+            if (username === userData.username && password === userData.password) {
+                console.log('Login successful');  // Debug log
+                
+                // Store user data
+                this.currentUser = { ...userData };
+                this.showToast('Login successful!', 'success');
+                
+                // Hide login section
+                document.getElementById('loginSection').style.display = 'none';
+
+                // Show correct dashboard
+                const dashboardId = `${userType}Dashboard`;
+                const dashboard = document.getElementById(dashboardId);
+                
+                if (dashboard) {
+                    // Hide all dashboards first
+                    document.querySelectorAll('.dashboard').forEach(d => d.style.display = 'none');
+                    
+                    // Show and setup the correct dashboard
+                    dashboard.style.display = 'block';
+                    dashboard.classList.add('active');
+                    this.setupDashboardControls(userType);
+                    this.updateFileList();
+                    
+                    if (userType === 'admin') {
+                        this.refreshDashboard();
+                    }
                 } else {
-                    this.showToast('Invalid credentials!', 'error');
+                    console.error('Dashboard not found:', dashboardId);  // Debug log
+                    this.showToast('Dashboard not found', 'error');
                 }
-            } catch (error) {
-                console.error('Login error:', error);
-                this.showToast('Login failed: ' + error.message, 'error');
+            } else {
+                console.log('Invalid credentials');  // Debug log
+                this.showToast('Invalid username or password', 'error');
             }
         };
-    }
-
-    authenticateUser(username, password, type) {
-        // Convert admin to admin_user for key lookup
-        const userKey = type === 'admin' ? 'admin' : `${type}_user`;
-        const user = USERS[userKey];
-
-        console.log('Auth attempt:', { username, type, userKey, found: !!user });
-
-        if (user && user.username === username && user.password === password) {
-            this.currentUser = {
-                username: user.username,
-                type: user.type,
-                dashboard: `${type}Dashboard` // Directly use type for dashboard ID
-            };
-            console.log('Auth success:', this.currentUser);
-            return true;
-        }
-        return false;
     }
 
     refreshDashboard() {
@@ -676,49 +686,6 @@ class P2PFileSystem {
         }
         
         this.showToast('Dashboard refreshed!', 'success');
-    }
-
-    showDashboard(type) {
-        try {
-            // Hide all dashboards and login
-            document.getElementById('loginSection').style.display = 'none';
-            
-            // Hide all dashboards first
-            ['adminDashboard', 'nasaDashboard', 'drdoDashboard', 'universityDashboard'].forEach(id => {
-                const dashboard = document.getElementById(id);
-                if (dashboard) {
-                    dashboard.style.display = 'none';
-                }
-            });
-
-            // Show the correct dashboard
-            const dashboardId = `${type}Dashboard`;
-            const dashboard = document.getElementById(dashboardId);
-            
-            console.log('Showing dashboard:', dashboardId, !!dashboard);
-            
-            if (!dashboard) {
-                throw new Error(`Dashboard not found: ${dashboardId}`);
-            }
-
-            dashboard.style.display = 'block';
-            dashboard.classList.add('active');
-            
-            this.showToast(`Welcome ${this.currentUser.username}!`, 'success');
-            
-            // Initialize dashboard features only after showing dashboard
-            this.setupDashboardControls(type);
-            this.updateFileList(); // Move this here after dashboard is shown
-            
-            // If admin, update stats immediately
-            if (type === 'admin') {
-                this.refreshDashboard();
-            }
-            
-        } catch (error) {
-            console.error('Dashboard error:', error);
-            this.showToast('Error loading dashboard', 'error');
-        }
     }
 
     setupDashboardControls(type) {
@@ -886,12 +853,6 @@ class P2PFileSystem {
     }
 
     setupSocketListeners() {
-        this.socket = io('https://p2p-file-system.onrender.com', {
-            path: '/socket.io',
-            transports: ['websocket', 'polling'],
-            credentials: true
-        });
-
         this.socket.on('connect', () => {
             console.log('Connected to server');
             if (this.currentUser) {
@@ -1080,6 +1041,9 @@ class P2PFileSystem {
         setTimeout(() => errorDiv.remove(), 5000);
     }
 }
+
+// Make P2PFileSystem available globally
+window.P2PFileSystem = P2PFileSystem;
 
 // Initialize system
 window.addEventListener('DOMContentLoaded', () => {
