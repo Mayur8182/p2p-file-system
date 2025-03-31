@@ -8,11 +8,31 @@ const File = require('./config/models/file');
 const app = express();
 const port = process.env.PORT || 3000;
 
+<<<<<<< HEAD
 // Connect to MongoDB
 connectDB().then(() => {
     console.log('MongoDB connected successfully');
 }).catch(err => {
     console.error('MongoDB connection error:', err);
+=======
+const corsOrigin = process.env.CORS_ORIGIN || 'https://guileless-crisp-6c4e0f.netlify.app';
+
+app.use(cors({
+    origin: '*',  // Allow all origins temporarily for testing
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true
+}));
+
+// Update Socket.IO configuration
+const io = new Server(server, {
+    path: '/socket.io',
+    cors: {
+        origin: '*',  // Allow all origins temporarily
+        methods: ["GET", "POST"],
+        credentials: true,
+        transports: ['websocket', 'polling']
+    }
+>>>>>>> origin/main
 });
 
 // Middleware
@@ -106,7 +126,16 @@ app.get('/api/download/:fileId', async (req, res) => {
     }
 });
 
+<<<<<<< HEAD
 // Start server
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
+=======
+// Make sure this is the last middleware
+app.use(express.static('./'));
+
+const PORT = process.env.PORT || 10000;  // Change default port
+server.listen(PORT, '0.0.0.0', () => {    // Listen on all network interfaces
+    console.log(`Server running on port ${PORT}`);
+>>>>>>> origin/main
 });

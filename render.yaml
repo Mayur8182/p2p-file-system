@@ -7,6 +7,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 10000
       - key: MONGODB_URI
         sync: false
       - key: SECRET_KEY
@@ -16,4 +18,8 @@ services:
       - key: EMAIL_PASSWORD
         sync: false
       - key: CORS_ORIGIN
-        sync: false
+        value: "*"
+    scaling:
+      minInstances: 1
+      maxInstances: 1
+    healthCheckPath: /health
