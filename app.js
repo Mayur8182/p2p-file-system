@@ -137,10 +137,22 @@ class P2PFileSystem {
 
     async uploadFile(file) {
         try {
-            // Get progress element from current dashboard
-            const currentDashboard = document.querySelector(`#${this.currentUser.type}Dashboard`);
-            const progress = currentDashboard.querySelector('#uploadProgress');
-            const progressBar = progress?.querySelector('.progress-bar');
+            // Create progress element if needed
+            let progress = document.getElementById('uploadProgress');
+            if (!progress) {
+                progress = document.createElement('div');
+                progress.id = 'uploadProgress';
+                progress.className = 'progress mb-3';
+                progress.innerHTML = '<div class="progress-bar" role="progressbar"></div>';
+                
+                // Get the current dashboard and insert progress bar
+                const currentDashboard = document.querySelector(`#${this.currentUser.type}Dashboard`);
+                const uploadSection = currentDashboard.querySelector('.upload-section');
+                if (uploadSection) {
+                    uploadSection.insertBefore(progress, uploadSection.firstChild);
+                }
+            }
+            const progressBar = progress.querySelector('.progress-bar');
             
             if (progress && progressBar) {
                 progress.classList.remove('d-none');
@@ -196,6 +208,7 @@ class P2PFileSystem {
         } catch (error) {
             this.showToast(`Upload failed: ${error.message}`, 'error');
         } finally {
+            const progress = document.getElementById('uploadProgress');
             if (progress) {
                 progress.classList.add('d-none');
             }
