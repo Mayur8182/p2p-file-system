@@ -300,7 +300,7 @@ class P2PFileSystem {
             const finalResult = await completeResponse.json();
 
             // Add to file list and update UI
-            this.uploadedFiles.push({
+            const newFile = {
                 _id: finalResult.fileId,
                 id: finalResult.fileId,
                 name: file.name,
@@ -312,14 +312,26 @@ class P2PFileSystem {
                     private: recipients.length > 0,
                     allowedUsers: recipients
                 }
-            });
+            };
+
+            this.uploadedFiles.push(newFile);
+
+            // Only attempt sharing if there are recipients
+            if (recipients?.length) {
+                try {
+                    await this.sharePrivateFile(newFile._id, recipients);
+                } catch (shareError) {
+                    console.warn('Share warning:', shareError);
+                    this.showToast(`File uploaded but sharing failed: ${shareError.message}`, 'warning');
+                }
+            }
 
             this.showToast(`File ${file.name} uploaded successfully!`, 'success');
             this.updateFileDisplay();
 
             return true;
         } catch (error) {
-            console.error('Upload failed:', error);
+            console.error('Upload error:', error);
             this.showToast(`Upload failed: ${error.message}`, 'error');
             return false;
         } finally {
@@ -388,33 +400,41 @@ class P2PFileSystem {
     }
 
     async sharePrivateFile(fileId, recipients) {
-        if (!fileId || !recipients?.length) return;
+        if (!fileId || !recipients?.length) {
+            throw new Error('Invalid share parameters');
+        }
 
         try {
-            console.log('Sharing file:', { fileId, recipients });
-
-            const response = await fetch('/api/share-private', {
+            const response = await fetch('https://p2p-file-system.onrender.com/api/share', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
+                credentials: 'include',
                 body: JSON.stringify({
                     fileId: fileId,
                     recipients: recipients,
-                    from: this.currentUser.type
+                    from: this.currentUser?.type || 'anonymous'
                 })
             });
 
-            const data = await response.json();
-            
             if (!response.ok) {
-                throw new Error(data.error || 'Share failed');
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Share failed (${response.status})`);
             }
 
-            return data;
+            const result = await response.json();
+            
+            if (result.success) {
+                this.showToast(`File shared with ${recipients.join(', ')}`, 'success');
+                return result;
+            } else {
+                throw new Error(result.message || 'Share failed');
+            }
+
         } catch (error) {
             console.error('Share failed:', error);
-            throw error;
+            throw new Error(`Failed to share file: ${error.message}`);
         }
     }
 
@@ -1048,38 +1068,16 @@ class P2PFileSystem {
         }
     }
 
-    async sharePrivateFile(file, progress) {
-        try {
-            const response = await fetch('/api/share-private', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    fileId: file.id,
-                    recipients: this.selectedRecipients
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            return result;
-        } catch (error) {
-            console.error('Share failed:', error);
-            throw new Error('Failed to share file. Please check your connection and try again.');
-        }
-    }
-
     showToast(message, type = 'success') {
-        // Remove any existing toasts first
         const existingToasts = document.querySelectorAll('.toast');
         existingToasts.forEach(toast => toast.remove());
 
         const toastEl = document.createElement('div');
-        toastEl.className = `toast align-items-center text-white bg-${type === 'success' ? 'success' : 'danger'} border-0`;
+        const bgClass = type === 'success' ? 'bg-success' : 
+                       type === 'warning' ? 'bg-warning' :
+                       'bg-danger';
+        
+        toastEl.className = `toast align-items-center text-white ${bgClass} border-0`;
         toastEl.setAttribute('role', 'alert');
         toastEl.style.position = 'fixed';
         toastEl.style.top = '20px';
