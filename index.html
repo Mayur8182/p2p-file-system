@@ -582,7 +582,8 @@
             window.BACKEND_URL = 'https://p2p-file-system.onrender.com';
             const system = new P2PFileSystem();
             window.fileSystem = system;
-            window.login = system.login.bind(system);
+            // Explicitly bind login function to window
+            window.login = () => system.login();
         });
     </script>
 </body>

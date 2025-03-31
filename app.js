@@ -54,7 +54,10 @@ class P2PFileSystem {
             credentials: true
         });
         this.setupSocketListeners();
-        this.setupAuth(); // Make sure this gets called
+        this.setupAuth();
+        
+        // Bind login method in constructor
+        this.login = this.login.bind(this);
     }
 
     init() {
@@ -614,31 +617,35 @@ class P2PFileSystem {
     }
 
     setupAuth() {
-        // Create bound login method
-        this.login = () => {
-            try {
-                const username = document.getElementById('username').value;
-                const password = document.getElementById('password').value;
-                const userType = document.getElementById('userType').value;
+        // Ensure login function is available after initialization
+        if (!window.login) {
+            window.login = this.login.bind(this);
+        }
+    }
 
-                console.log('Login attempt:', { username, userType });
+    login() {
+        try {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const userType = document.getElementById('userType').value;
 
-                if (!username || !password) {
-                    this.showToast('Please enter username and password', 'error');
-                    return;
-                }
+            console.log('Login attempt:', { username, userType });
 
-                if (this.authenticateUser(username, password, userType)) {
-                    this.showToast('Login successful!', 'success');
-                    this.showDashboard(userType);
-                } else {
-                    this.showToast('Invalid credentials!', 'error');
-                }
-            } catch (error) {
-                console.error('Login error:', error);
-                this.showToast('Login failed: ' + error.message, 'error');
+            if (!username || !password) {
+                this.showToast('Please enter username and password', 'error');
+                return;
             }
-        };
+
+            if (this.authenticateUser(username, password, userType)) {
+                this.showToast('Login successful!', 'success');
+                this.showDashboard(userType);
+            } else {
+                this.showToast('Invalid credentials!', 'error');
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            this.showToast('Login failed: ' + error.message, 'error');
+        }
     }
 
     authenticateUser(username, password, type) {
@@ -1084,11 +1091,10 @@ class P2PFileSystem {
 
 // Initialize system
 window.addEventListener('DOMContentLoaded', () => {
-    window.fileSystem = new P2PFileSystem();
-    // Ensure login function is available after initialization
-    if (!window.login) {
-        window.login = window.fileSystem.login.bind(window.fileSystem);
-    }
+    // Create system instance
+    const system = new P2PFileSystem();
+    window.fileSystem = system;
+    window.login = () => system.login();
 });
 
 function uploadFile() {
