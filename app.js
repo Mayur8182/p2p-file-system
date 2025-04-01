@@ -173,14 +173,19 @@ class P2PFileSystem {
             formData.append('from', this.currentUser?.username || 'Anonymous');
             formData.append('recipients', JSON.stringify(recipients));
 
-            const response = await fetch('https://p2p-file-system.onrender.com/api/upload', {
+            const response = await fetch('https://p2p-file-system.onrender.com/v1/api/upload', {
                 method: 'POST',
                 body: formData,
-                credentials: 'include'
+                credentials: 'omit', // Changed from 'include' to 'omit'
+                headers: {
+                    'Authorization': `Bearer ${this.currentUser.type}` // Add auth header
+                },
+                mode: 'cors' // Explicitly set CORS mode
             });
 
             if (!response.ok) {
-                throw new Error('Upload failed');
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Upload failed');
             }
 
             const responseData = await response.json();
@@ -215,6 +220,47 @@ class P2PFileSystem {
         }
     }
 
+    downloadFile(fileId) {
+        if (!fileId) {
+            this.showToast('Invalid file ID', 'error');
+            return;
+        }
+        
+        const file = this.uploadedFiles.find(f => f._id === fileId || f.id === fileId);
+        if (!file) {
+            this.showToast('File not found', 'error');
+            return;
+        }
+
+        const downloadUrl = `https://p2p-file-system.onrender.com/v1/api/download/${fileId}`;
+        
+        fetch(downloadUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${this.currentUser.type}`
+            },
+            mode: 'cors'
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('Download failed');
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        })
+        .catch(error => {
+            console.error('Download error:', error);
+            this.showToast('Failed to download file. Please try again.', 'error');
+        });
+    }
+
     setupFileSystem() {
         // Only initialize file display after login
         this.updateFileDisplay();
@@ -222,82 +268,135 @@ class P2PFileSystem {
 
     async processFileUpload(file) {
         try {
-            const MAX_CHUNK_SIZE = 1024 * 1024 * 5; // 5MB chunks for better handling
+            // Increased chunk size and added retry logic
+            const MAX_CHUNK_SIZE = 1024 * 1024 * 10; // 10MB chunks
             const totalChunks = Math.ceil(file.size / MAX_CHUNK_SIZE);
+            const MAX_RETRIES = 3;
             
-            // Show progress
             const progress = document.getElementById('uploadProgress');
-            const progressBar = progress.querySelector('.progress-bar');
-            progress.style.display = 'block';
-            progress.classList.remove('d-none');
-            
-            // Validate file size
-            if (!this.validateFile(file)) {
-                return false;
+            const progressBar = progress?.querySelector('.progress-bar');
+            if (progress) {
+                progress.style.display = 'block';
+                progress.classList.remove('d-none');
             }
 
-            // Get recipients if admin
+            // Validate file
+            if (!this.validateFile(file)) return false;
+
+            // Get recipients
             const recipients = this.currentUser?.type === 'admin' 
                 ? Array.from(document.querySelectorAll('.recipient-options input:checked'))
                     .map(input => input.value)
                 : [];
 
-            // Upload metadata first
-            const metadataResponse = await fetch('https://p2p-file-system.onrender.com/api/upload/init', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    filename: file.name,
-                    totalSize: file.size,
-                    totalChunks,
-                    type: file.type,
-                    from: this.currentUser.type,
-                    recipients
-                })
-            });
+            // Initialize upload with retry
+            let uploadId;
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                try {
+                    const metadataResponse = await fetch('https://p2p-file-system.onrender.com/v1/api/upload/init', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${this.currentUser.type}` // Add auth header
+                        },
+                        credentials: 'omit', // Changed from 'include' to 'omit'
+                        mode: 'cors', // Explicitly set CORS mode
+                        body: JSON.stringify({
+                            filename: file.name,
+                            totalSize: file.size,
+                            totalChunks,
+                            type: file.type,
+                            from: this.currentUser.type,
+                            recipients
+                        })
+                    });
 
-            if (!metadataResponse.ok) throw new Error('Failed to initialize upload');
-            const { uploadId } = await metadataResponse.json();
+                    if (!metadataResponse.ok) {
+                        const error = await metadataResponse.json();
+                        throw new Error(error.message || 'Failed to initialize upload');
+                    }
 
-            // Upload chunks
+                    const data = await metadataResponse.json();
+                    uploadId = data.uploadId;
+                    break;
+                } catch (error) {
+                    if (attempt === MAX_RETRIES - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+                }
+            }
+
+            // Upload chunks with retry
             for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
                 const start = chunkIndex * MAX_CHUNK_SIZE;
                 const end = Math.min(start + MAX_CHUNK_SIZE, file.size);
                 const chunk = file.slice(start, end);
 
-                const formData = new FormData();
-                formData.append('chunk', chunk);
-                formData.append('uploadId', uploadId);
-                formData.append('chunkIndex', chunkIndex);
+                for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                    try {
+                        const formData = new FormData();
+                        formData.append('chunk', chunk);
+                        formData.append('uploadId', uploadId);
+                        formData.append('chunkIndex', chunkIndex);
 
-                const response = await fetch('https://p2p-file-system.onrender.com/api/upload/chunk', {
-                    method: 'POST',
-                    body: formData,
-                });
+                        const response = await fetch('https://p2p-file-system.onrender.com/v1/api/upload/chunk', {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'omit', // Changed from 'include' to 'omit'
+                            headers: {
+                                'Authorization': `Bearer ${this.currentUser.type}` // Add auth header
+                            },
+                            mode: 'cors' // Explicitly set CORS mode
+                        });
 
-                if (!response.ok) throw new Error(`Failed to upload chunk ${chunkIndex}`);
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.message || `Failed to upload chunk ${chunkIndex}`);
+                        }
 
-                // Update progress
-                const percentComplete = ((chunkIndex + 1) / totalChunks) * 100;
-                progressBar.style.width = `${percentComplete}%`;
+                        // Update progress
+                        if (progressBar) {
+                            const percentComplete = ((chunkIndex + 1) / totalChunks) * 100;
+                            progressBar.style.width = `${percentComplete}%`;
+                        }
+                        
+                        break;
+                    } catch (error) {
+                        if (attempt === MAX_RETRIES - 1) throw error;
+                        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+                    }
+                }
             }
 
-            // Complete upload
-            const completeResponse = await fetch('https://p2p-file-system.onrender.com/api/upload/complete', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    uploadId,
-                    recipients
-                })
-            });
+            // Complete upload with retry
+            let finalResult;
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                try {
+                    const completeResponse = await fetch('https://p2p-file-system.onrender.com/v1/api/upload/complete', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${this.currentUser.type}` // Add auth header
+                        },
+                        credentials: 'omit', // Changed from 'include' to 'omit'
+                        mode: 'cors', // Explicitly set CORS mode
+                        body: JSON.stringify({
+                            uploadId,
+                            recipients
+                        })
+                    });
 
-            if (!completeResponse.ok) throw new Error('Failed to complete upload');
-            const finalResult = await completeResponse.json();
+                    if (!completeResponse.ok) {
+                        const error = await completeResponse.json();
+                        throw new Error(error.message || 'Failed to complete upload');
+                    }
+
+                    finalResult = await completeResponse.json();
+                    break;
+                } catch (error) {
+                    if (attempt === MAX_RETRIES - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+                }
+            }
 
             // Add to file list and update UI
             const newFile = {
@@ -315,37 +414,31 @@ class P2PFileSystem {
             };
 
             this.uploadedFiles.push(newFile);
-
-            // Only attempt sharing if there are recipients
-            if (recipients?.length) {
-                try {
-                    await this.sharePrivateFile(newFile._id, recipients);
-                } catch (shareError) {
-                    console.warn('Share warning:', shareError);
-                    this.showToast(`File uploaded but sharing failed: ${shareError.message}`, 'warning');
-                }
-            }
-
             this.showToast(`File ${file.name} uploaded successfully!`, 'success');
             this.updateFileDisplay();
 
             return true;
+
         } catch (error) {
             console.error('Upload error:', error);
             this.showToast(`Upload failed: ${error.message}`, 'error');
             return false;
         } finally {
-            // Hide progress
             const progress = document.getElementById('uploadProgress');
-            progress.style.display = 'none';
-            progress.classList.add('d-none');
+            if (progress) {
+                progress.style.display = 'none';
+                progress.classList.add('d-none');
+            }
         }
     }
 
     validateFile(file) {
-        const MAX_FILE_SIZE = 1024 * 1024 * 1024 * 10; // 10GB max file size
+        // Increased max file size to 20GB
+        const MAX_FILE_SIZE = 1024 * 1024 * 1024 * 20; // 20GB
         const ALLOWED_TYPES = [
-            'video/', 'image/', 'application/pdf',
+            'video/', 
+            'image/', 
+            'application/pdf',
             'application/msword',
             'application/vnd.openxmlformats-officedocument',
             'application/zip',
@@ -353,15 +446,24 @@ class P2PFileSystem {
             'video/mp4',
             'video/mpeg',
             'video/quicktime',
-            'application/octet-stream'
+            'video/x-matroska', // Added MKV support
+            'application/octet-stream',
+            '' // Allow empty mime type
         ];
 
         if (file.size > MAX_FILE_SIZE) {
-            this.showToast('File size exceeds 10GB limit', 'error');
+            this.showToast('File size exceeds 20GB limit', 'error');
             return false;
         }
 
-        if (!ALLOWED_TYPES.some(type => file.type.startsWith(type))) {
+        // More lenient type checking
+        const isAllowedType = ALLOWED_TYPES.some(type => 
+            type === '' || file.type.startsWith(type) || 
+            file.name.toLowerCase().endsWith('.mkv') || // Allow MKV files
+            file.name.toLowerCase().endsWith('.mp4')    // Allow MP4 files
+        );
+
+        if (!isAllowedType) {
             this.showToast('File type not supported', 'error');
             return false;
         }
@@ -376,8 +478,11 @@ class P2PFileSystem {
             const response = await fetch('/api/share-private', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.currentUser.type}` // Add auth header
                 },
+                credentials: 'omit', // Changed from 'include' to 'omit'
+                mode: 'cors', // Explicitly set CORS mode
                 body: JSON.stringify({
                     fileId,
                     recipients: [recipient],
@@ -405,12 +510,14 @@ class P2PFileSystem {
         }
 
         try {
-            const response = await fetch('https://p2p-file-system.onrender.com/api/share', {
+            const response = await fetch('https://p2p-file-system.onrender.com/v1/api/share', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.currentUser.type}`, // Add auth header
                 },
-                credentials: 'include',
+                credentials: 'omit', // Changed from 'include' to 'omit'
+                mode: 'cors', // Explicitly set CORS mode
                 body: JSON.stringify({
                     fileId: fileId,
                     recipients: recipients,
@@ -438,7 +545,7 @@ class P2PFileSystem {
         }
     }
 
-    updateFileList(searchQuery = '') {
+    async updateFileList(searchQuery = '') {
         if (!this.currentUser?.type) {
             console.log('No active user session');
             return Promise.resolve();
@@ -450,12 +557,16 @@ class P2PFileSystem {
         const retryFetch = async (attempts = 3) => {
             for (let i = 0; i < attempts; i++) {
                 try {
-                    const response = await fetch(`https://p2p-file-system.onrender.com/api/files?type=${userType}`, {
-                        credentials: 'include',
+                    const response = await fetch(`https://p2p-file-system.onrender.com/v1/api/files?type=${userType}`, {
+                        method: 'GET',
+                        credentials: 'omit', // Changed from 'include' to 'omit'
                         headers: {
+                            'Accept': 'application/json',
+                            'Authorization': `Bearer ${this.currentUser.type}`, // Add auth header instead
                             'Cache-Control': 'no-cache',
                             'Pragma': 'no-cache'
-                        }
+                        },
+                        mode: 'cors' // Explicitly set CORS mode
                     });
 
                     if (!response.ok) {
@@ -463,15 +574,12 @@ class P2PFileSystem {
                     }
 
                     const files = await response.json();
-                    console.log('Fetched files:', files);
                     this.uploadedFiles = Array.isArray(files) ? files : [];
                     this.updateFileDisplay();
                     return;
                 } catch (error) {
                     console.error(`Attempt ${i + 1} failed:`, error);
-                    if (i === attempts - 1) {
-                        throw error;
-                    }
+                    if (i === attempts - 1) throw error;
                     await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
                 }
             }
@@ -579,7 +687,7 @@ class P2PFileSystem {
         
         const file = this.uploadedFiles.find(f => f._id === fileId || f.id === fileId);
         if (file) {
-            window.open(`https://p2p-file-system.onrender.com/api/download/${fileId}`, '_blank');
+            window.open(`https://p2p-file-system.onrender.com/v1/api/download/${fileId}`, '_blank');
         }
     }
 
@@ -857,9 +965,13 @@ class P2PFileSystem {
                 formData.append('recipients', JSON.stringify(recipients));
 
                 // Upload file
-                const response = await fetch('https://p2p-file-system.onrender.com/api/upload', {
+                const response = await fetch('https://p2p-file-system.onrender.com/v1/api/upload', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    headers: {
+                        'Authorization': `Bearer ${this.currentUser.type}` // Add auth header
+                    },
+                    mode: 'cors' // Explicitly set CORS mode
                 });
 
                 if (!response.ok) throw new Error('Upload failed');
@@ -1090,56 +1202,46 @@ class P2PFileSystem {
             </div>
         `;
         document.body.appendChild(toastEl);
-        const toast = new bootstrap.Toast(toastEl);
-        toast.show();
+        
+        if (typeof bootstrap !== 'undefined') {
+            const toast = new bootstrap.Toast(toastEl);
+            toast.show();
+        }
+        
         setTimeout(() => toastEl.remove(), 3000);
     }
 
-    showError(message) {
-        // Add error display functionality
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.textContent = message;
-        document.body.appendChild(errorDiv);
-        setTimeout(() => errorDiv.remove(), 5000);
-    }
-}
-
-// Make P2PFileSystem available globally
-window.P2PFileSystem = P2PFileSystem;
+} // End of P2PFileSystem class
 
 // Initialize system
-window.addEventListener('DOMContentLoaded', () => {
-    // Create system instance
-    const system = new P2PFileSystem();
-    window.fileSystem = system;
+document.addEventListener('DOMContentLoaded', () => {
+    window.fileSystem = new P2PFileSystem();
 });
 
-function uploadFile() {
-    fileSystem.uploadFile();
-}
+// Make functions globally available
+window.uploadFile = function() {
+    if (window.fileSystem) {
+        window.fileSystem.uploadFile();
+    }
+};
 
-function downloadFile(fileId) {
-    fileSystem.downloadFile(fileId);
-}
+window.downloadFile = function(fileId) {
+    if (window.fileSystem) {
+        window.fileSystem.downloadFile(fileId);
+    }
+};
 
-// Add missing admin dashboard functions
-function showUserManagement() {
+window.showUserManagement = function() {
     console.log('User management');
     alert('User management feature coming soon');  
-}
+};
 
-function showSystemLogs() {
+window.showSystemLogs = function() {
     console.log('System logs');
     alert('System logs feature coming soon');
-}
+};
 
-function showEncryptionKeys() {
+window.showEncryptionKeys = function() {
     console.log('Encryption keys');
     alert('Encryption keys feature coming soon');
-}
-
-// Make functions globally available
-window.showUserManagement = showUserManagement;
-window.showSystemLogs = showSystemLogs;
-window.showEncryptionKeys = showEncryptionKeys;
+};
